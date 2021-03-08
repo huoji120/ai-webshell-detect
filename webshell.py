@@ -15,7 +15,15 @@ import tensorflow.keras.preprocessing as keras_preprocessing
 from sklearn.preprocessing import StandardScaler
 import chardet
 import math
+from joblib import dump
 
+'''
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+config = tf.ConfigProto(allow_soft_placement=True)
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+config.gpu_options.allow_growth = True
+sess0 = tf.InteractiveSession(config=config)
+'''
 g_word_dict = {}
 
 
@@ -25,7 +33,7 @@ def os_listdir_ex(file_dir, find_name):  # 祖传代码
         for file in files:
             if os.path.splitext(file)[1] == find_name:
                 result.append(os.path.join(root, file))
-                # return result 测试用
+                # return result  # 测试用
     return result
 
 
@@ -96,7 +104,13 @@ def vectorize_sequences(sequences, dimention=1337):
     # 创建一个大小为（25000，10000）的全零矩阵
     results = np.zeros((len(sequences), dimention))
     for i, sequence in enumerate(sequences):
-        results[i, sequence] = 1.
+        if i > dimention:
+            break
+        try:
+            results[i, sequence] = 1.
+        except:
+            break
+
     return results
 
 
@@ -150,7 +164,8 @@ def build_network():
     # y = label
     # 进来的file length_scaled entropy_scaled word_bag
     # 第一网络是一个TextCNN 词嵌入-卷积池化*3-拼接-全连接-dropout-全连接
-    input_1 = keras.layers.Input(shape=(1337,), dtype='int16', name='word_bag')
+    input_1 = keras.layers.Input(
+        shape=(1337,), dtype='int16', name='word_bag')
     # 词嵌入（使用预训练的词向量）
     embed = keras.layers.Embedding(
         len(g_word_dict) + 1, 300, input_length=1337)(input_1)
@@ -232,31 +247,42 @@ def build_network():
 
 
 # get_functions("C:\\Users\\Administrator\\Desktop\\webshell检测\\webshell\\一句话\\一句话.php")
-data_frame = get_data_frame()
-data_frame['length'] = data_frame['file'].map(
-    lambda file_name: get_file_length(file_name)).astype(int)
-data_frame['entropy'] = data_frame['file'].map(
-    lambda file_name: get_file_entropy(file_name)).astype(float)
-# 归一化这两个东西
-scaler = StandardScaler()
-data_frame['length_scaled'] = scaler.fit_transform(
-    data_frame['length'].values.reshape(-1, 1), scaler.fit(data_frame['length'].values.reshape(-1, 1)))
-data_frame['entropy_scaled'] = scaler.fit_transform(
-    data_frame['entropy'].values.reshape(-1, 1), scaler.fit(data_frame['entropy'].values.reshape(-1, 1)))
-# 导入词袋
-data_frame['word_bag'] = data_frame['file'].map(
-    lambda file_name: get_file_word_bag(file_name))
-
+data_frame = []
+if os.path.exists("save.csv") == False:
+    data_frame = get_data_frame()
+    print(data_frame.head(5))
+    data_frame['length'] = data_frame['file'].map(
+        lambda file_name: get_file_length(file_name)).astype(int)
+    data_frame['entropy'] = data_frame['file'].map(
+        lambda file_name: get_file_entropy(file_name)).astype(float)
+    # 归一化这两个东西
+    scaler_length = StandardScaler()
+    scaler_entropy = StandardScaler()
+    data_frame['length_scaled'] = scaler_length.fit_transform(
+        data_frame['length'].values.reshape(-1, 1), scaler_length.fit(data_frame['length'].values.reshape(-1, 1)))
+    data_frame['entropy_scaled'] = scaler_entropy.fit_transform(
+        data_frame['entropy'].values.reshape(-1, 1), scaler_entropy.fit(data_frame['entropy'].values.reshape(-1, 1)))
+    # 导入词袋
+    data_frame['word_bag'] = data_frame['file'].map(
+        lambda file_name: get_file_word_bag(file_name))
+    data_frame.to_csv("save.csv")
+    dump(scaler_length, 'scaler_length.joblib')
+    dump(scaler_entropy, 'scaler_entropy.joblib')
+else:
+    data_frame = pd.read_csv("save.csv", header=0)
+    print(data_frame.head(5))
+skip_Data_num = 2610
 data_train_pre = data_frame.filter(
     items=['length_scaled', 'entropy_scaled'])
 data_train_y = tf.constant(data_frame.filter(
-    items=['label']))
-data_train_x_1 = tf.constant(data_train_pre)
+    items=['label'])[:skip_Data_num])
+
+data_train_x_1 = tf.constant(data_train_pre[:skip_Data_num])
 data_train_x_2 = tf.constant(
-    vectorize_sequences(data_frame['word_bag'].values))
+    vectorize_sequences(data_frame['word_bag'].values[:skip_Data_num]))
 # 现在这个是一个 (batch_size,(1337个单词[1337个hot code]))
 network_model = build_network()
 network_model.summary()
 history = network_model.fit(
-    x=[data_train_x_1, data_train_x_2], y=data_train_y, batch_size=128, epochs=128)
+    x=[data_train_x_1, data_train_x_2], y=data_train_y, epochs=100)
 network_model.save('huoji.h5')
