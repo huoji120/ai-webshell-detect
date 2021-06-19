@@ -25,6 +25,7 @@ config.gpu_options.allow_growth = True
 sess0 = tf.InteractiveSession(config=config)
 '''
 g_word_dict = {}
+g_keras_token = None
 
 
 def os_listdir_ex(file_dir, find_name):  # 祖传代码
@@ -114,7 +115,41 @@ def vectorize_sequences(sequences, dimention=1337):
     return results
 
 
-def get_file_word_bag(pFile):
+def get_word_bag(pWordList):
+    global g_word_dict
+    global g_keras_token
+    sequences_data = g_keras_token.texts_to_sequences(pWordList)
+    word_bag = []
+    for index in range(0, len(sequences_data)):
+        if len(sequences_data[index]) != 0:
+            for zeus in range(0, len(sequences_data[index])):
+                word_bag.append(sequences_data[index][zeus])
+    return word_bag
+
+
+def set_word_bag(pWordList):
+    global g_word_dict
+    global g_keras_token
+    if g_keras_token == None:
+        g_keras_token = keras.preprocessing.text.Tokenizer()  # 初始化标注器
+    g_keras_token.fit_on_texts(pWordList)  # 学习出文本的字典
+    g_word_dict.update(g_keras_token.word_index)
+
+
+def get_file_word(pFile):
+    global g_word_dict
+    english_punctuations = [',', '.', ':', ';', '?',
+                            '(', ')', '[', ']', '&', '!', '*', '@', '#', '$', '%', 'php', '<', '>', '\'']
+    clean_string = flush_file(pFile)
+    word_list = nltk.word_tokenize(clean_string)
+    # 过滤掉不干净的
+    word_list = [
+        word_iter for word_iter in word_list if word_iter not in english_punctuations]
+    # anti-paste
+    return word_list
+
+
+def get_file_word_bag_non_use(pFile):
     global g_word_dict
     english_punctuations = [',', '.', ':', ';', '?',
                             '(', ')', '[', ']', '&', '!', '*', '@', '#', '$', '%', 'php', '<', '>', '\'']
@@ -264,7 +299,11 @@ if os.path.exists("save.csv") == False:
         data_frame['entropy'].values.reshape(-1, 1), scaler_entropy.fit(data_frame['entropy'].values.reshape(-1, 1)))
     # 导入词袋
     data_frame['word_bag'] = data_frame['file'].map(
-        lambda file_name: get_file_word_bag(file_name))
+        lambda file_name: get_file_word(file_name))
+    set_word_bag(data_frame['word_bag'])
+    data_frame['word_bag'] = data_frame['word_bag'].map(
+        lambda text_params: get_word_bag(text_params))
+
     data_frame.to_csv("save.csv")
     dump(scaler_length, 'scaler_length.joblib')
     dump(scaler_entropy, 'scaler_entropy.joblib')
